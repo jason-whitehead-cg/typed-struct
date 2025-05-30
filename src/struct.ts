@@ -1964,8 +1964,8 @@ export class Struct<
         if (typeof rawOrSize === 'number' || rawOrSize === undefined) { // size given or default
           $raw = new Uint8Array(size);
         } else if (rawOrSize instanceof Uint8Array) {
-          // Attempt 2: Use .slice() for cloning
-          $raw = clone ? rawOrSize.slice() : rawOrSize; 
+          // Setting to new Uint8Array(rawOrSize) for consistency as per subtask
+          $raw = clone ? new Uint8Array(rawOrSize) : rawOrSize; 
         } else if (Array.isArray(rawOrSize)) { // number[]
           $raw = Uint8Array.from(rawOrSize);
         } else {
