@@ -1,4 +1,5 @@
 import { inspect } from 'node:util';
+import { Buffer } from 'node:buffer'; // Re-add Buffer import
 import { initializeAPI } from './struct';
 
 export * from './struct';
@@ -17,7 +18,7 @@ void Promise.allSettled([import('debug'), import('iconv-lite')]).then(([debug, i
       if (end < 0) end = buf.length;
       const subArray = buf.subarray(0, end);
       return iconvDecode
-        ? iconvDecode(subArray, encoding) // iconv-lite generally handles Uint8Array fine
+        ? iconvDecode(Buffer.from(subArray), encoding) // Convert Uint8Array to Buffer for iconv-lite
         : new TextDecoder(encoding).decode(subArray);
     },
     setString: (buf, encoding, value) => { // buf is Uint8Array
