@@ -5,8 +5,8 @@ export type ExtractType<C, clear extends boolean = true> = C extends new () => i
     : T
   : never;
 
-type GetString = (buf: Buffer, encoding: string) => string;
-type SetString = (buf: Buffer, encoding: string, value: string) => void;
+type GetString = (buf: Uint8Array, encoding: string) => string;
+type SetString = (buf: Uint8Array, encoding: string, value: string) => void;
 type Inspect = (((...args: any[]) => string) & { custom: symbol }) | undefined;
 type ColorPrint = (c: number | string, msg: string) => string;
 
@@ -14,7 +14,6 @@ let getString: GetString;
 let setString: SetString;
 let inspect: Inspect;
 let colorPrint: ColorPrint = (_, msg) => msg;
-let Buffer: typeof globalThis.Buffer;
 
 export const initializeAPI = (api: {
   getString: GetString;
@@ -26,10 +25,6 @@ export const initializeAPI = (api: {
   setString = api.setString;
   inspect = api.inspect;
   colorPrint = api.colorPrint;
-};
-
-export const initializeBuffer = (value: typeof globalThis.Buffer) => {
-  Buffer = value;
 };
 
 type FilterFlags<Base, Condition> = {
@@ -207,19 +202,19 @@ type NativeType<T extends PropType | string> = T extends BigIntTypes
       : T extends PropType.String
         ? string
         : T extends PropType.Buffer
-          ? Buffer
+          ? Uint8Array
           : any;
 
 /**
  * Getter for custom types. Should return the property value, or `undefined` if the type is
  * unknown.
  */
-export type Getter<R> = (type: string, buffer: Buffer) => R | undefined;
+export type Getter<R> = (type: string, buffer: Uint8Array) => R | undefined;
 
 /**
  * Setter for custom types. Should return `false` if the type is unknown.
  */
-export type Setter<R> = (type: string, buffer: Buffer, value: R) => boolean;
+export type Setter<R> = (type: string, buffer: Uint8Array, value: R) => boolean;
 
 const isSimpleType = (desc: PropDesc): desc is PropDesc<SimpleTypes, number | boolean | bigint> =>
   desc.struct === undefined &&
@@ -340,7 +335,7 @@ const encodeMaskedValue = (
 
 const getValue = <T extends SimpleTypes>(
   info: PropDesc<T>,
-  data: Buffer
+  data: Uint8Array
 ): NativeType<T> | bigint | number | boolean | undefined => {
   // if (!isSimpleType(info)) throw new TypeError('Invalid type');
   const { len, offset, type, mask, be, tail } = info;
@@ -350,53 +345,56 @@ const getValue = <T extends SimpleTypes>(
   switch (type) {
     case PropType.UInt8:
       // offset may be negative
-      return decodeMaskedValue(data.subarray(offset).readUInt8(), 8, mask);
+      return decodeMaskedValue(new DataView(data.buffer, data.byteOffset).getUint8(offset), 8, mask);
     case PropType.Int8:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      return data.readInt8(offset);
+      return new DataView(data.buffer, data.byteOffset).getInt8(offset);
     case PropType.UInt16:
       // offset may be negative
       return decodeMaskedValue(
-        be ? data.subarray(offset).readUInt16BE() : data.subarray(offset).readUInt16LE(),
+        new DataView(data.buffer, data.byteOffset).getUint16(offset, !be),
         16,
         mask
       );
     case PropType.Int16:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      return be ? data.readInt16BE(offset) : data.readInt16LE(offset);
+      return new DataView(data.buffer, data.byteOffset).getInt16(offset, !be);
     case PropType.UInt32:
       // offset may be negative
       return decodeMaskedValue(
-        be ? data.subarray(offset).readUInt32BE() : data.subarray(offset).readUInt32LE(),
+        new DataView(data.buffer, data.byteOffset).getUint32(offset, !be),
         32,
         mask
       );
     case PropType.Int32:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      return be ? data.readInt32BE(offset) : data.readInt32LE(offset);
+      return new DataView(data.buffer, data.byteOffset).getInt32(offset, !be);
     case PropType.Float32:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Float type do not support bit masks');
-      return be ? data.readFloatBE(offset) : data.readFloatLE(offset);
+      return new DataView(data.buffer, data.byteOffset).getFloat32(offset, !be);
     case PropType.Float64:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Double type do not support bit masks');
-      return be ? data.readDoubleBE(offset) : data.readDoubleLE(offset);
+      return new DataView(data.buffer, data.byteOffset).getFloat64(offset, !be);
     case PropType.Boolean8:
-      return !!decodeMaskedValue(data.readUInt8(offset), 8, mask);
+      return !!decodeMaskedValue(new DataView(data.buffer, data.byteOffset).getUint8(offset), 8, mask);
     case PropType.Boolean16:
-      return !!decodeMaskedValue(data.readUInt16LE(offset), 16, mask);
+      return !!decodeMaskedValue(new DataView(data.buffer, data.byteOffset).getUint16(offset, true), 16, mask);
     case PropType.Boolean32:
-      return !!decodeMaskedValue(data.readUInt32LE(offset), 32, mask);
+      return !!decodeMaskedValue(new DataView(data.buffer, data.byteOffset).getUint32(offset, true), 32, mask);
     case PropType.BCD:
-      return Math.floor(data[0] / 16) * 10 + (data[0] % 16);
+      // Assuming data is Uint8Array, data[0] is equivalent to data.getUint8(0) if offset is 0 for BCD.
+      // This might need adjustment if BCD can have a non-zero offset within its own allocated space.
+      // For now, assuming BCD is always at the start of its 'data' segment.
+      return Math.floor(new DataView(data.buffer, data.byteOffset).getUint8(0) / 16) * 10 + (new DataView(data.buffer, data.byteOffset).getUint8(0) % 16);
     case PropType.BigInt64:
-      return be ? data.readBigInt64BE(offset) : data.readBigInt64LE(offset);
+      return new DataView(data.buffer, data.byteOffset).getBigInt64(offset, !be);
     case PropType.BigUInt64:
-      return be ? data.readBigUInt64BE(offset) : data.readBigUInt64LE(offset);
+      return new DataView(data.buffer, data.byteOffset).getBigUint64(offset, !be);
     /* istanbul ignore next */
     default:
       return undefined;
@@ -405,7 +403,7 @@ const getValue = <T extends SimpleTypes>(
 
 const setValue = <T extends SimpleTypes>(
   info: PropDesc<T>,
-  data: Buffer,
+  data: Uint8Array,
   value: NativeType<T>
 ): boolean => {
   // if (!isSimpleType(info)) throw new TypeError('Invalid type');
@@ -422,72 +420,62 @@ const setValue = <T extends SimpleTypes>(
   switch (type) {
     case PropType.UInt8:
       // offset may be negative
-      data.subarray(offset).writeUInt8(encode(value, 8));
+      new DataView(data.buffer, data.byteOffset).setUint8(offset, encode(value, 8));
       return true;
     case PropType.Int8:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      data.writeInt8(Number(value), offset);
+      new DataView(data.buffer, data.byteOffset).setInt8(offset, Number(value));
       return true;
     case PropType.UInt16:
       // offset may be negative
-      if (be) data.subarray(offset).writeUInt16BE(encode(value, 16));
-      else data.subarray(offset).writeUInt16LE(encode(value, 16));
+      new DataView(data.buffer, data.byteOffset).setUint16(offset, encode(value, 16), !be);
       return true;
     case PropType.Int16:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      if (be) data.writeInt16BE(Number(value), offset);
-      else data.writeInt16LE(Number(value), offset);
+      new DataView(data.buffer, data.byteOffset).setInt16(offset, Number(value), !be);
       return true;
     case PropType.UInt32:
       // offset may be negative
-      if (be) data.subarray(offset).writeUInt32BE(encode(value, 32));
-      else data.subarray(offset).writeUInt32LE(encode(value, 32));
+      new DataView(data.buffer, data.byteOffset).setUint32(offset, encode(value, 32), !be);
       return true;
     case PropType.Int32:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Signed types do not support bit masks');
-      if (be) data.writeInt32BE(Number(value), offset);
-      else data.writeInt32LE(Number(value), offset);
+      new DataView(data.buffer, data.byteOffset).setInt32(offset, Number(value), !be);
       return true;
     case PropType.Float32:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Float type do not support bit masks');
-      if (be) data.writeFloatBE(Number(value), offset);
-      else data.writeFloatLE(Number(value), offset);
+      new DataView(data.buffer, data.byteOffset).setFloat32(offset, Number(value), !be);
       return true;
     case PropType.Float64:
       /* istanbul ignore next */
       if (mask !== undefined) throw new TypeError('Double type do not support bit masks');
-      if (be) data.writeDoubleBE(Number(value), offset);
-      else data.writeDoubleLE(Number(value), offset);
+      new DataView(data.buffer, data.byteOffset).setFloat64(offset, Number(value), !be);
       return true;
     case PropType.Boolean8:
-      data.writeUInt8(encode(value ? 0xff : 0, 8), offset);
+      new DataView(data.buffer, data.byteOffset).setUint8(offset, encode(value ? 0xff : 0, 8));
       return true;
     case PropType.Boolean16: {
       const val = encode(value ? 0xffff : 0, 16);
-      // if (be) data.writeUInt16BE(val, offset);
-      data.writeUInt16LE(val, offset);
+      new DataView(data.buffer, data.byteOffset).setUint16(offset, val, true); // Assuming LE for Boolean16 by default
       return true;
     }
     case PropType.Boolean32: {
       const val = encode(value ? 0xffffffff : 0, 32);
-      // if (be) data.writeUInt32BE(val, offset);
-      data.writeUInt32LE(val, offset);
+      new DataView(data.buffer, data.byteOffset).setUint32(offset, val, true); // Assuming LE for Boolean32 by default
       return true;
     }
     case PropType.BCD:
-      data.writeUInt8(Math.floor(Number(value) / 10) * 16 + (Number(value) % 10), offset);
+      new DataView(data.buffer, data.byteOffset).setUint8(offset, Math.floor(Number(value) / 10) * 16 + (Number(value) % 10));
       return true;
     case PropType.BigInt64:
-      if (be) data.writeBigInt64BE(BigInt(value), offset);
-      else data.writeBigInt64LE(BigInt(value), offset);
+      new DataView(data.buffer, data.byteOffset).setBigInt64(offset, BigInt(value), !be);
       return true;
     case PropType.BigUInt64:
-      if (be) data.writeBigUInt64BE(BigInt(value), offset);
-      else data.writeBigUInt64LE(BigInt(value), offset);
+      new DataView(data.buffer, data.byteOffset).setBigUint64(offset, BigInt(value), !be);
       return true;
     /* istanbul ignore next */
     default:
@@ -502,7 +490,7 @@ const setValue = <T extends SimpleTypes>(
  * @param data - buffer for storing properties, must belong to the object
  * @returns obj
  */
-function defineProps<T>(obj: unknown, props: PropertyMap<T>, data: Buffer): T {
+function defineProps<T>(obj: unknown, props: PropertyMap<T>, data: Uint8Array): T {
   [...props.entries()].forEach(([name, info]) => {
     Object.defineProperty(obj, name, createPropDesc(info, data));
   });
@@ -555,7 +543,7 @@ const getTypedArrayConstructor = (
   }
 };
 
-const createPropDesc = (info: PropDesc, data: Buffer): PropertyDescriptor => {
+const createPropDesc = (info: PropDesc, data: Uint8Array): PropertyDescriptor => {
   const desc: PropertyDescriptor = { enumerable: true };
 
   if (typeof info.type === 'string') {
@@ -619,7 +607,7 @@ const createPropDesc = (info: PropDesc, data: Buffer): PropertyDescriptor => {
     const { len, offset, encoding = 'utf-8', size } = info;
     /* istanbul ignore next */
     if (!len || !size) throw new TypeError('Invalid descriptor');
-    const getBuf = (index: number): Buffer => {
+    const getBuf = (index: number): Uint8Array => {
       if (Number.isInteger(index) && index >= 0 && index < len) {
         const start = offset + index * size;
         return data.subarray(start, start + size);
@@ -721,7 +709,7 @@ type StructInstance<T, ClassName extends string> = T & {
 /**
  * Checksum function type
  */
-export type CRCCalc = (buf: Buffer, previous?: number) => number;
+export type CRCCalc = (buf: Uint8Array, previous?: number) => number;
 
 /**
  * CRC field options
@@ -777,7 +765,7 @@ export interface StructConstructor<T, ClassName extends string> {
    * @param clone - create a copy of `raw` to store changes
    * @return fake field `__struct` is only used as a type guard and should not be used
    */
-  new (raw: Buffer, clone?: boolean): StructInstance<T, ClassName>;
+  new (raw: Uint8Array, clone?: boolean): StructInstance<T, ClassName>;
 
   /**
    * Structure constructor.
@@ -802,13 +790,13 @@ export interface StructConstructor<T, ClassName extends string> {
    * @param instance - the object
    * @param name - property name
    */
-  swap(instance: StructInstance<T, ClassName>, name: keyof T): Buffer;
+  swap(instance: StructInstance<T, ClassName>, name: keyof T): Uint8Array;
   /**
    * Returns the underlying buffer if the object is a typed structure
    * @param instance - the object from which to get the underlying buffer
    */
-  raw(instance: StructInstance<T, ClassName>): Buffer;
-  raw(instance: POJO<T>): Buffer | undefined;
+  raw(instance: StructInstance<T, ClassName>): Uint8Array;
+  raw(instance: POJO<T>): Uint8Array | undefined;
 }
 
 const isSimpleOrString = (value: unknown): value is number | boolean | string | null | undefined =>
@@ -819,7 +807,7 @@ const isIterable = (arr: unknown): arr is Iterable<unknown> => Symbol.iterator i
 const isObject = (obj: unknown): obj is Record<PropertyKey, unknown> =>
   obj != null &&
   !Array.isArray(obj) &&
-  !Buffer.isBuffer(obj) &&
+  !(obj instanceof Uint8Array) &&
   typeof obj === 'object' &&
   Object.entries(obj).length > 0;
 // Object.prototype.toString.call(obj) === '[object Object]';
@@ -854,7 +842,7 @@ const nameIt = <C extends Constructable>(name: string, superClass: C) =>
     },
   })[name];
 
-const printBuffer = (data: Buffer): string =>
+const printBuffer = (data: Uint8Array): string =>
   [...data].map(byte => byte.toString(16).padStart(2, '0')).join('-');
 
 /**
@@ -1003,8 +991,8 @@ export class Struct<
    * Returns the underlying buffer of the structure
    * @param structure
    */
-  static raw = (structure: StructGuard<string>): Buffer =>
-    (structure as unknown as { $raw: Buffer }).$raw;
+  static raw = (structure: StructGuard<string>): Uint8Array =>
+    (structure as unknown as { $raw: Uint8Array }).$raw;
 
   /**
    * The current size of the structure in bytes
@@ -1384,7 +1372,7 @@ export class Struct<
    * @param name - The field name or aliases
    * @param length - The desired length of the `Buffer`
    */
-  Buffer<N extends string>(name: N | N[], length?: number): ExtendStruct<T, ClassName, N, Buffer> {
+  Buffer<N extends string>(name: N | N[], length?: number): ExtendStruct<T, ClassName, N, Uint8Array> {
     return this.createProp(name, {
       type: PropType.Buffer,
       tail: length === undefined || length < 0,
@@ -1923,20 +1911,20 @@ export class Struct<
 
       constructor(raw: number[]);
 
-      constructor(raw?: Buffer, clone?: boolean);
+      constructor(raw?: Uint8Array, clone?: boolean);
 
-      constructor(rawOrSize: number | number[] | Buffer | undefined, clone = false) {
+      constructor(rawOrSize: number | number[] | Uint8Array | undefined, clone = false) {
         const size =
-          Buffer.isBuffer(rawOrSize) || Array.isArray(rawOrSize)
+          rawOrSize instanceof Uint8Array || Array.isArray(rawOrSize)
             ? rawOrSize.length
             : (rawOrSize ?? baseSize);
         if (size < baseSize)
           throw TypeError(`[${className}]: Buffer size must be at least ${baseSize} (${size})`);
-        let $raw: Buffer;
+        let $raw: Uint8Array;
         if (typeof rawOrSize === 'number' || rawOrSize === undefined) {
-          $raw = Buffer.alloc(size);
+          $raw = new Uint8Array(size);
         } else {
-          $raw = clone || Array.isArray(rawOrSize) ? Buffer.from(rawOrSize) : rawOrSize;
+          $raw = clone || Array.isArray(rawOrSize) ? Uint8Array.from(rawOrSize) : rawOrSize;
         }
         defineProps(this, props, $raw);
         const toString = () => {
@@ -1983,9 +1971,9 @@ export class Struct<
         // Object.preventExtensions(this);
       }
 
-      static swap = (instance: Instance, name: keyof T): Buffer => swap(name, Struct.raw(instance));
+      static swap = (instance: Instance, name: keyof T): Uint8Array => swap(name, Struct.raw(instance));
 
-      static raw = (instance: Instance): Buffer => Struct.raw(instance);
+      static raw = (instance: Instance): Uint8Array => Struct.raw(instance);
 
       toJSON(): POJO<T> {
         return toPOJO(this) as POJO<T>;
@@ -2018,7 +2006,7 @@ export class Struct<
   }
 
   /** @hidden */
-  protected swap = (name: keyof T, raw: Buffer): Buffer => {
+  protected swap = (name: keyof T, raw: Uint8Array): Uint8Array => {
     const prop = this.props.get(name);
     if (!prop) throw new TypeError(`Unknown property name "${String(name)}"`);
     const { type, offset, len = 1 } = prop;
@@ -2026,13 +2014,26 @@ export class Struct<
     const end = offset + itemSize * len;
     switch (itemSize) {
       case 1:
-        return raw.subarray(offset, end);
+        return raw.subarray(offset, end); // No swap needed for single byte
       case 2:
-        return raw.subarray(offset, end).swap16();
+        {
+          const val = new DataView(raw.buffer, raw.byteOffset).getUint16(offset, true);
+          new DataView(raw.buffer, raw.byteOffset).setUint16(offset, val, false);
+          return raw.subarray(offset, end);
+        }
       case 4:
-        return raw.subarray(offset, end).swap32();
+        {
+          const val = new DataView(raw.buffer, raw.byteOffset).getUint32(offset, true);
+          new DataView(raw.buffer, raw.byteOffset).setUint32(offset, val, false);
+          return raw.subarray(offset, end);
+        }
       case 8:
-        return raw.subarray(offset, end).swap64();
+        {
+          // Assuming BigInt64 for swap64, adjust if Float64 also needs this
+          const val = new DataView(raw.buffer, raw.byteOffset).getBigUint64(offset, true);
+          new DataView(raw.buffer, raw.byteOffset).setBigUint64(offset, val, false);
+          return raw.subarray(offset, end);
+        }
       /* istanbul ignore next */
       default:
         throw new TypeError(

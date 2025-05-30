@@ -1,20 +1,26 @@
-import { Buffer } from 'buffer/index.js';
-import { initializeAPI, initializeBuffer } from './struct';
+import { initializeAPI } from './struct';
 
 export * from './struct';
 
-initializeBuffer(Buffer as unknown as typeof globalThis.Buffer);
-
 initializeAPI({
   getString: (buf, encoding) => {
-    let end: number | undefined = buf.indexOf(0);
+    // buf is Uint8Array
+    let end = -1;
+    for (let i = 0; i < buf.length; ++i) {
+      if (buf[i] === 0) {
+        end = i;
+        break;
+      }
+    }
     if (end < 0) end = buf.length;
-    return buf.toString(encoding as BufferEncoding, 0, end);
+    // Use TextDecoder for Uint8Array
+    return new TextDecoder(encoding).decode(buf.subarray(0, end));
   },
   setString: (buf, encoding, value) => {
-    const encoded = Buffer.from(value, encoding as BufferEncoding);
+    // buf is Uint8Array, encoding is mostly ignored by TextEncoder (UTF-8 is used)
+    const encoded = new TextEncoder().encode(value);
     if (encoded.length > buf.length) throw new TypeError(`String is too long`);
-    encoded.copy(buf as unknown as Buffer);
+    buf.set(encoded);
     buf.fill(0, encoded.length);
   },
   inspect: undefined,

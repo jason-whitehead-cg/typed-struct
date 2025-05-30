@@ -1,28 +1,32 @@
 import { inspect } from 'node:util';
-import { Buffer } from 'node:buffer';
-import { initializeAPI, initializeBuffer } from './struct';
+import { initializeAPI } from './struct';
 
 export * from './struct';
 
-initializeBuffer(Buffer);
-
 void Promise.allSettled([import('debug'), import('iconv-lite')]).then(([debug, iconv]) => {
   initializeAPI({
-    getString: (buf, encoding) => {
+    getString: (buf, encoding) => { // buf is Uint8Array
       const iconvDecode = iconv.status === 'fulfilled' && iconv.value.decode;
-      let end: number | undefined = buf.indexOf(0);
+      let end = -1;
+      for (let i = 0; i < buf.length; ++i) {
+        if (buf[i] === 0) {
+          end = i;
+          break;
+        }
+      }
       if (end < 0) end = buf.length;
+      const subArray = buf.subarray(0, end);
       return iconvDecode
-        ? iconvDecode(buf.subarray(0, end), encoding)
-        : buf.toString(encoding as BufferEncoding, 0, end);
+        ? iconvDecode(subArray, encoding) // iconv-lite generally handles Uint8Array fine
+        : new TextDecoder(encoding).decode(subArray);
     },
-    setString: (buf, encoding, value) => {
+    setString: (buf, encoding, value) => { // buf is Uint8Array
       const iconvEncode = iconv.status === 'fulfilled' && iconv.value.encode;
-      const encoded = iconvEncode
+      const encoded: Uint8Array | Buffer = iconvEncode // Buffer from iconv-lite is a Uint8Array
         ? iconvEncode(value, encoding)
-        : Buffer.from(value, encoding as BufferEncoding);
+        : new TextEncoder().encode(value); // TextEncoder only supports utf-8
       if (encoded.length > buf.length) throw new TypeError(`String is too long`);
-      encoded.copy(buf);
+      buf.set(encoded);
       buf.fill(0, encoded.length);
     },
     inspect,
